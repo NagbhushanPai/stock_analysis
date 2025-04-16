@@ -1,4 +1,4 @@
-from dash import Dash, dcc, html, Input, Output, State, callback_context
+from dash import Dash, dcc, html, Input, Output, State
 from components.plots import create_stock_chart
 from config.settings import TICKERS, CHART_TYPES
 from utils.helpers import generate_csv_download
@@ -8,6 +8,9 @@ app = Dash(__name__, external_stylesheets=[
     'https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css',
     '/static/styles.css'
 ])
+
+# Store last inputs to debounce callbacks
+last_inputs = {'stocks': None, 'months': None, 'chart_type': None, 'ma_options': None}
 
 # Layout with enhanced UI
 app.layout = html.Div(className='min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300', children=[
@@ -21,7 +24,6 @@ app.layout = html.Div(className='min-h-screen bg-gray-100 dark:bg-gray-900 text-
     html.Div(className='container mx-auto p-4', children=[
         # Controls
         html.Div(className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-4', children=[
-            # Stock selection
             html.Div([
                 html.Label('Select Stocks:', className='font-semibold mb-2'),
                 dcc.Checklist(
@@ -32,7 +34,6 @@ app.layout = html.Div(className='min-h-screen bg-gray-100 dark:bg-gray-900 text-
                     className='space-x-4'
                 )
             ]),
-            # Chart type and moving averages
             html.Div([
                 html.Label('Chart Type:', className='font-semibold mb-2'),
                 dcc.RadioItems(
@@ -53,7 +54,6 @@ app.layout = html.Div(className='min-h-screen bg-gray-100 dark:bg-gray-900 text-
             ])
         ]),
         
-        # Time slider
         html.Label('Select Time Range (Months):', className='font-semibold mb-2'),
         dcc.Slider(
             id='time-slider',
@@ -66,10 +66,8 @@ app.layout = html.Div(className='min-h-screen bg-gray-100 dark:bg-gray-900 text-
             className='mb-4'
         ),
         
-        # Error message
         html.Div(id='error-message', className='text-red-500 mb-4 hidden'),
         
-        # Chart and export button
         dcc.Loading(
             id='loading',
             type='circle',
@@ -80,8 +78,7 @@ app.layout = html.Div(className='min-h-screen bg-gray-100 dark:bg-gray-900 text-
             ]
         ),
         
-        # Interval for real-time updates
-        dcc.Interval(id='interval-component', interval=60*1000, n_intervals=0)  # Update every 60 seconds
+        dcc.Interval(id='interval-component', interval=60*1000, n_intervals=0)
     ])
 ])
 
@@ -96,7 +93,7 @@ def toggle_dark_mode(n_clicks, current_text):
         return 'Toggle Light Mode' if current_text == 'Toggle Dark Mode' else 'Toggle Dark Mode'
     return current_text
 
-# Callback for chart update
+# Callback for chart update with debouncing
 @app.callback(
     [Output('stock-chart', 'figure'), Output('error-message', 'children'), Output('error-message', 'className')],
     [Input('stock-checklist', 'value'), Input('time-slider', 'value'), 
@@ -104,8 +101,15 @@ def toggle_dark_mode(n_clicks, current_text):
      Input('interval-component', 'n_intervals')]
 )
 def update_chart(selected_stocks, months, chart_type, ma_options, n_intervals):
+    global last_inputs
     error_msg = ""
     error_class = 'text-red-500 mb-4 hidden'
+    
+    # Check if inputs have changed
+    current_inputs = {'stocks': selected_stocks, 'months': months, 'chart_type': chart_type, 'ma_options': ma_options}
+    if current_inputs == last_inputs and n_intervals % 1 == 0:  # Only update on interval if inputs unchanged
+        return dash.no_update, dash.no_update, dash.no_update
+    last_inputs = current_inputs
     
     try:
         fig = create_stock_chart(selected_stocks, months, chart_type, ma_options)
