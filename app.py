@@ -1,142 +1,229 @@
-from dash import Dash, dcc, html, Input, Output, State
-from components.plots import create_stock_chart
-from config.settings import TICKERS, CHART_TYPES
-from utils.helpers import generate_csv_download
+import dash
 import dash_bootstrap_components as dbc
+from dash import dcc, html, Input, Output, State
+import plotly.graph_objs as go
+from datetime import datetime, timedelta
+from data.fetcher import fetch_historical_data
+from rl.trainer import train_model
+from rl.backtest import backtest_strategy, rsi_strategy
+from components.rl_visualizer import create_rl_chart
+import os
 
-app = Dash(__name__, external_stylesheets=[
-    'https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css',
-    '/static/styles.css'
-])
+# Initialize Dash app
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app.title = "Stock Trading Visualizer"
 
-# Store last inputs to debounce callbacks
-last_inputs = {'stocks': None, 'months': None, 'chart_type': None, 'ma_options': None}
+# Constants
+TICKERS = ["NVDA", "AAPL", "MSFT", "TSLA"]
+DEFAULT_TICKER = "NVDA"
 
-# Layout with enhanced UI
-app.layout = html.Div(className='min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300', children=[
-    # Header
-    html.Div(className='flex justify-between items-center p-4 bg-blue-600 dark:bg-blue-800 text-white', children=[
-        html.H1('Interactive Stock Visualizer', className='text-2xl font-bold'),
-        html.Button('Toggle Dark Mode', id='dark-mode-toggle', className='px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded')
-    ]),
+# Layout
+app.layout = dbc.Container([
+    html.H1("Stock Trading Visualizer", className="text-center my-4"),
     
-    # Main content
-    html.Div(className='container mx-auto p-4', children=[
-        # Controls
-        html.Div(className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-4', children=[
-            html.Div([
-                html.Label('Select Stocks:', className='font-semibold mb-2'),
-                dcc.Checklist(
-                    id='stock-checklist',
-                    options=[{'label': ticker, 'value': ticker} for ticker in TICKERS],
-                    value=['NVDA'],
-                    inline=True,
-                    className='space-x-4'
-                )
-            ]),
-            html.Div([
-                html.Label('Chart Type:', className='font-semibold mb-2'),
-                dcc.RadioItems(
-                    id='chart-type',
-                    options=[{'label': ct, 'value': ct} for ct in CHART_TYPES],
-                    value='Bar',
-                    inline=True,
-                    className='space-x-4'
-                ),
-                html.Label('Show Moving Averages:', className='font-semibold mt-4 mb-2'),
-                dcc.Checklist(
-                    id='ma-checklist',
-                    options=[{'label': '20-day MA', 'value': '20'}, {'label': '50-day MA', 'value': '50'}],
-                    value=[],
-                    inline=True,
-                    className='space-x-4'
-                )
-            ])
-        ]),
+    # Controls
+    dbc.Row([
+        # Left: Stock and RL controls
+        dbc.Col([
+            html.Label("Select Stock:", className="font-semibold mb-2"),
+            dcc.Dropdown(
+                id="ticker",
+                options=[{"label": ticker, "value": ticker} for ticker in TICKERS],
+                value=DEFAULT_TICKER,
+                className="mb-4"
+            ),
+            html.Label("Time Range (Months):", className="font-semibold mb-2"),
+            dcc.Slider(
+                id="time-slider",
+                min=1,
+                max=24,
+                step=1,
+                value=12,
+                marks={i: str(i) for i in [1, 6, 12, 18, 24]},
+                className="mb-4"
+            ),
+            html.Label("Indicators:", className="font-semibold mb-2"),
+            dcc.Checklist(
+                id="indicator-checklist",
+                options=[
+                    {"label": "RSI", "value": "RSI"},
+                    {"label": "MACD", "value": "MACD"}
+                ],
+                value=["RSI"],
+                className="mb-4"
+            ),
+            html.Label("Train RL Model:", className="font-semibold mb-2"),
+            dcc.Dropdown(
+                id="rl-ticker",
+                options=[{"label": ticker, "value": ticker} for ticker in TICKERS],
+                value=DEFAULT_TICKER,
+                className="mb-2"
+            ),
+            dcc.Dropdown(
+                id="rl-algo",
+                options=[
+                    {"label": "PPO", "value": "ppo"},
+                    {"label": "SAC", "value": "sac"}
+                ],
+                value="ppo",
+                className="mb-2"
+            ),
+            html.Button(
+                "Train Model",
+                id="train-btn",
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 mb-2"
+            ),
+            html.Button(
+                "Backtest RSI Strategy",
+                id="backtest-btn",
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+            )
+        ], md=4),
         
-        html.Label('Select Time Range (Months):', className='font-semibold mb-2'),
-        dcc.Slider(
-            id='time-slider',
-            min=1,
-            max=12,
-            step=1,
-            value=6,
-            marks={i: f'{i}M' for i in range(1, 13)},
-            tooltip={'placement': 'bottom', 'always_visible': True},
-            className='mb-4'
-        ),
-        
-        html.Div(id='error-message', className='text-red-500 mb-4 hidden'),
-        
-        dcc.Loading(
-            id='loading',
-            type='circle',
-            children=[
-                dcc.Graph(id='stock-chart', className='bg-white dark:bg-gray-800 p-4 rounded shadow'),
-                html.Button('Download Data as CSV', id='download-btn', className='mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700'),
-                dcc.Download(id='download-csv')
-            ]
-        ),
-        
-        dcc.Interval(id='interval-component', interval=60*1000, n_intervals=0)
+        # Right: Charts and metrics
+        dbc.Col([
+            dcc.Graph(id="stock-chart", className="mb-4"),
+            dcc.Graph(id="rl-chart", className="mb-4"),
+            html.Div(id="metrics-output", className="text-center")
+        ], md=8)
     ])
-])
+], fluid=True)
 
-# Callback for dark mode toggle
+# Callbacks
 @app.callback(
-    Output('dark-mode-toggle', 'children'),
-    Input('dark-mode-toggle', 'n_clicks'),
-    State('dark-mode-toggle', 'children')
+    Output("stock-chart", "figure"),
+    Input("ticker", "value"),
+    Input("time-slider", "value"),
+    Input("indicator-checklist", "value")
 )
-def toggle_dark_mode(n_clicks, current_text):
-    if n_clicks:
-        return 'Toggle Light Mode' if current_text == 'Toggle Dark Mode' else 'Toggle Dark Mode'
-    return current_text
-
-# Callback for chart update with debouncing
-@app.callback(
-    [Output('stock-chart', 'figure'), Output('error-message', 'children'), Output('error-message', 'className')],
-    [Input('stock-checklist', 'value'), Input('time-slider', 'value'), 
-     Input('chart-type', 'value'), Input('ma-checklist', 'value'),
-     Input('interval-component', 'n_intervals')]
-)
-def update_chart(selected_stocks, months, chart_type, ma_options, n_intervals):
-    global last_inputs
-    error_msg = ""
-    error_class = 'text-red-500 mb-4 hidden'
-    
-    # Check if inputs have changed
-    current_inputs = {'stocks': selected_stocks, 'months': months, 'chart_type': chart_type, 'ma_options': ma_options}
-    if current_inputs == last_inputs and n_intervals % 1 == 0:  # Only update on interval if inputs unchanged
-        return dash.no_update, dash.no_update, dash.no_update
-    last_inputs = current_inputs
-    
+def update_stock_chart(ticker, months, indicators):
+    """
+    Update the stock price chart with selected indicators.
+    """
     try:
-        fig = create_stock_chart(selected_stocks, months, chart_type, ma_options)
-        if not fig.data:
-            error_msg = "No data available for selected stocks. Please try different stocks or check your connection."
-            error_class = 'text-red-500 mb-4'
-    except Exception as e:
-        error_msg = f"Error fetching data: {str(e)}"
-        error_class = 'text-red-500 mb-4'
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=months * 30)
+        data = fetch_historical_data(ticker, start_date, end_date, interval="1d", context="chart")
+        
+        if data.empty:
+            raise ValueError(f"No data available for {ticker}")
+        
         fig = go.Figure()
+        
+        # Add stock price
+        fig.add_trace(go.Scatter(
+            x=data.index,
+            y=data["Close"],
+            mode="lines",
+            name="Close Price"
+        ))
+        
+        # Add indicators
+        if "RSI" in indicators:
+            fig.add_trace(go.Scatter(
+                x=data.index,
+                y=data["RSI"],
+                mode="lines",
+                name="RSI",
+                yaxis="y2"
+            ))
+        if "MACD" in indicators:
+            fig.add_trace(go.Scatter(
+                x=data.index,
+                y=data["MACD"],
+                mode="lines",
+                name="MACD",
+                yaxis="y3"
+            ))
+            fig.add_trace(go.Scatter(
+                x=data.index,
+                y=data["MACD_Signal"],
+                mode="lines",
+                name="MACD Signal",
+                yaxis="y3"
+            ))
+        
+        # Update layout
+        fig.update_layout(
+            title=f"{ticker} Stock Price and Indicators",
+            xaxis=dict(title="Date"),
+            yaxis=dict(title="Price"),
+            yaxis2=dict(title="RSI", overlaying="y", side="right", range=[0, 100]),
+            yaxis3=dict(title="MACD", overlaying="y", side="left", position=0.05),
+            template="plotly_dark"
+        )
+        
+        return fig
     
-    return fig, error_msg, error_class
+    except Exception as e:
+        return go.Figure().update_layout(
+            title=f"Error loading chart: {str(e)}",
+            template="plotly_dark"
+        )
 
-# Callback for CSV download
 @app.callback(
-    Output('download-csv', 'data'),
-    Input('download-btn', 'n_clicks'),
-    State('stock-checklist', 'value'),
-    State('time-slider', 'value'),
+    [Output("rl-chart", "figure"), Output("metrics-output", "children")],
+    [Input("train-btn", "n_clicks"), Input("backtest-btn", "n_clicks")],
+    [
+        State("rl-ticker", "value"),
+        State("time-slider", "value"),
+        State("indicator-checklist", "value"),
+        State("rl-algo", "value")
+    ],
     prevent_initial_call=True
 )
-def download_csv(n_clicks, selected_stocks, months):
-    if n_clicks:
-        return generate_csv_download(selected_stocks, months)
-    return None
+def train_and_visualize_rl(n_train, n_backtest, ticker, months, indicator_options, algo):
+    """
+    Train or backtest a model and visualize results.
+    """
+    if n_train:
+        try:
+            model_path = f"models/{algo}_{ticker}.zip"
+            actions, net_worths, total_reward, sharpe_ratio, max_drawdown = train_model(
+                ticker, months=months, save_path=model_path, algo=algo
+            )
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=months * 30)
+            data = fetch_historical_data(ticker, start_date, end_date, interval="1d", context="rl")
+            fig = create_rl_chart(actions, net_worths, data, ticker, indicator_options)
+            metrics = f"{algo.upper()} - Sharpe Ratio: {sharpe_ratio:.2f}, Max Drawdown: {max_drawdown:.2%}, Total Reward: {total_reward:.2f}"
+            return fig, metrics
+        except Exception as e:
+            return (
+                go.Figure().update_layout(
+                    title=f"Error training {algo.upper()} model: {str(e)}",
+                    template="plotly_dark"
+                ),
+                f"Error: {str(e)}"
+            )
+    
+    if n_backtest:
+        try:
+            result = backtest_strategy(ticker, months, rsi_strategy)
+            if "error" in result:
+                raise ValueError(result["error"])
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=months * 30)
+            data = fetch_historical_data(ticker, start_date, end_date, interval="1d", context="backtest")
+            actions = [rsi_strategy(data.iloc[:i+1]) for i in range(len(data))]
+            fig = create_rl_chart(actions, result["net_worths"], data, ticker, indicator_options)
+            metrics = (
+                f"RSI Strategy - Sharpe Ratio: {result['sharpe_ratio']:.2f}, "
+                f"Max Drawdown: {result['max_drawdown']:.2%}"
+            )
+            return fig, metrics
+        except Exception as e:
+            return (
+                go.Figure().update_layout(
+                    title=f"Error backtesting RSI strategy: {str(e)}",
+                    template="plotly_dark"
+                ),
+                f"Error: {str(e)}"
+            )
+    
+    return dash.no_update, dash.no_update
 
-# Run the app
-if __name__ == '__main__':
+# Run server
+if __name__ == "__main__":
     print("Starting Dash server...")
     app.run(debug=True)

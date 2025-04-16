@@ -1,80 +1,85 @@
-Stock Visualizer
-An interactive web application to visualize stock prices using Dash and Plotly. Features include:
+Stock Visualizer with RL Trading
+An interactive web application to visualize stock prices and train reinforcement learning (RL) models for algorithmic trading using Dash, Plotly, and Stable-Baselines3.
+Features
 
-Time slider to adjust the date range (1 to 12 months).
-Checkboxes to select stocks (NVDA, AAPL, MSFT, GOOGL, AMZN).
-Toggle between bar and line charts.
-Optional 20-day and 50-day moving averages.
-Real-time updates every minute for intraday data (when time range ≤ 1 month).
-Data export as CSV.
+Visualize stock prices (NVDA, AAPL, MSFT, GOOGL, AMZN) with bar or line charts.
+Adjust time range (1 to 12 months) with a slider.
+Toggle 20-day and 50-day moving averages.
+Real-time updates every minute for intraday data (≤ 1 month).
+Train and visualize RL-based trading strategies using PPO.
+Export data as CSV.
 Dark/light mode toggle and responsive design.
 
 Project Structure
 stock_visualizer/
 ├── app.py                  # Main Dash application
 ├── data/
-│   └── fetcher.py          # Functions for fetching stock data
+│   └── fetcher.py          # Fetch stock data
 ├── components/
-│   └── plots.py            # Functions for generating Plotly charts
-├── config/
-│   └── settings.py         # Configuration (tickers, colors, etc.)
+│   ├── plots.py            # Plotly charts
+│   └── rl_visualizer.py    # RL trading visualization
+├── rl/
+│   ├── environment.py      # Custom trading environment
+│   ├── models.py           # RL algorithms (PPO)
+│   └── trainer.py          # Training and evaluation
 ├── utils/
-│   └── helpers.py          # Utility functions (e.g., CSV export)
+│   └── helpers.py          # Utility functions (CSV export)
+├── config/
+│   └── settings.py         # Configuration
 ├── static/
-│   └── styles.css          # Custom CSS for styling
-├── requirements.txt        # List of dependencies
-└── README.md               # Project documentation
+│   └── styles.css          # Custom CSS
+├── tests/
+│   └── test_rl.py          # Unit tests
+├── requirements.txt        # Dependencies
+└── README.md               # Documentation
 
 Prerequisites
 
 Python 3.8 or higher
-pip (Python package manager)
+pip
 
 Installation
 
 Clone or download the repository.
-
-Navigate to the project directory:
-cd stock_visualizer
+Navigate to the project directory:cd stock_visualizer
 
 
-Create a virtual environment (optional but recommended):
-python -m venv venv
+Create a virtual environment (optional):python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 
-Install dependencies:
-pip install -r requirements.txt
+Install dependencies:pip install -r requirements.txt
 
 
 
 Running the Application
 
-Ensure you're in the stock_visualizer directory.
-
-Run the Dash app:
-python app.py
+Run the Dash app:python app.py
 
 
-Open a web browser and go to http://127.0.0.1:8050.
-
+Open http://127.0.0.1:8050 in a web browser.
 
 Usage
 
-Select Stocks: Use checkboxes to choose stocks to display.
-Adjust Time Range: Move the slider to set the time range (1 to 12 months).
-Chart Type: Toggle between bar and line charts.
-Moving Averages: Enable 20-day and/or 50-day moving averages.
-Download Data: Click the "Download Data as CSV" button to export data.
-Dark Mode: Toggle between light and dark themes.
-Real-Time Updates: For time ranges ≤ 1 month, the chart updates every minute with intraday data.
+Stock Visualization: Select stocks, adjust time range, toggle chart type and moving averages.
+RL Trading: Choose a ticker, click "Train Model" to train a PPO model, and view trading performance (buy/sell markers, net worth).
+Data Export: Download OHLCV and moving average data as CSV.
+Real-Time Updates: Intraday data updates every minute for ≤ 1 month ranges.
 
 Troubleshooting
 
-yfinance Errors: If data fetching fails, update yfinance (pip install --upgrade yfinance). Check your internet connection or try alternative APIs (e.g., Polygon.io).
-Dash Issues: Ensure port 8050 is free. If the server fails, try a different port by modifying app.run(debug=True, port=8051) in app.py.
-Dependencies: Verify all packages are installed (pip install -r requirements.txt).
-CSS Issues: Ensure the static folder is in the project root and accessible.
+yfinance Errors: Update yfinance (pip install --upgrade yfinance). Test with:from data.fetcher import fetch_historical_data
+from datetime import datetime, timedelta
+data = fetch_historical_data("NVDA", datetime.now() - timedelta(days=30), datetime.now(), context="test")
+print(data)
+
+
+Dash Issues: Ensure port 8050 is free. Try a different port:app.run(debug=True, port=8051)
+
+
+RL Errors: Verify gymnasium and stable-baselines3 installations. Run tests:python -m unittest tests/test_rl.py
+
+
 
 Contributing
 Submit issues or pull requests to enhance the application.

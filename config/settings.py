@@ -12,3 +12,13 @@ INTERVALS = {
     'daily': '1d',
     'intraday': '1m'
 }
+
+# RL settings
+RL_HYPERPARAMS = {
+    'learning_rate': 0.0003,
+    'n_steps': 2048,
+    'batch_size': 64,
+    'n_epochs': 10,
+    'gamma': 0.99,
+    'gae_lambda': 0.95
+}

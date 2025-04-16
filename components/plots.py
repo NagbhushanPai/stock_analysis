@@ -2,34 +2,24 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from data.fetcher import fetch_historical_data
 from config.settings import TICKERS, COLORS
+from ta.momentum import RSIIndicator
+from ta.trend import MACD
 
-def create_stock_chart(selected_stocks, months, chart_type, ma_options):
-    """
-    Create a Plotly chart for selected stocks over a given time range.
-    
-    Args:
-        selected_stocks (list): List of stock tickers to display.
-        months (int): Number of months for the time range.
-        chart_type (str): 'Bar' or 'Line'.
-        ma_options (list): List of moving averages to display ('20', '50').
-    
-    Returns:
-        go.Figure: Plotly figure object.
-    """
-    # Calculate date range
+def create_stock_chart(selected_stocks, months, chart_type, ma_options, indicator_options):
     end_date = datetime.now()
     start_date = end_date - timedelta(days=months * 30)
     interval = "1m" if months <= 1 else "1d"
-    
-    # Initialize figure
     fig = go.Figure()
     
-    # Fetch data once per stock
     for i, ticker in enumerate(selected_stocks):
         if ticker in TICKERS:
             data = fetch_historical_data(ticker, start_date, end_date, interval=interval, context="chart")
             if not data.empty:
-                # Create chart trace
+                data['RSI'] = RSIIndicator(data['Close']).rsi()
+                macd = MACD(data['Close'])
+                data['MACD'] = macd.macd()
+                data['MACD_Signal'] = macd.macd_signal()
+                
                 trace = go.Bar if chart_type == 'Bar' else go.Scatter
                 fig.add_trace(trace(
                     x=data.index,
@@ -49,7 +39,6 @@ def create_stock_chart(selected_stocks, months, chart_type, ma_options):
                     customdata=data[['Open', 'High', 'Low', 'Volume']].values
                 ))
                 
-                # Add moving averages
                 if '20' in ma_options and 'MA20' in data:
                     fig.add_trace(go.Scatter(
                         x=data.index,
@@ -66,16 +55,42 @@ def create_stock_chart(selected_stocks, months, chart_type, ma_options):
                         line=dict(color=COLORS[i % len(COLORS)], dash='dot'),
                         opacity=0.5
                     ))
+                
+                if 'RSI' in indicator_options:
+                    fig.add_trace(go.Scatter(
+                        x=data.index,
+                        y=data['RSI'],
+                        name=f"{ticker} RSI",
+                        line=dict(color=COLORS[(i+1) % len(COLORS)]),
+                        yaxis="y2"
+                    ))
+                
+                if 'MACD' in indicator_options:
+                    fig.add_trace(go.Scatter(
+                        x=data.index,
+                        y=data['MACD'],
+                        name=f"{ticker} MACD",
+                        line=dict(color=COLORS[(i+2) % len(COLORS)]),
+                        yaxis="y3"
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=data.index,
+                        y=data['MACD_Signal'],
+                        name=f"{ticker} MACD Signal",
+                        line=dict(color=COLORS[(i+3) % len(COLORS)], dash="dot"),
+                        yaxis="y3"
+                    ))
     
-    # Update layout
     fig.update_layout(
         title=f'Stock Prices (Last {months} Months)',
         xaxis_title='Date',
         yaxis_title='Price (USD)',
+        yaxis2=dict(title="RSI", overlaying="y", side="right", range=[0, 100]) if 'RSI' in indicator_options else {},
+        yaxis3=dict(title="MACD", anchor="free", overlaying="y", side="left", position=0.1) if 'MACD' in indicator_options else {},
         barmode='group' if chart_type == 'Bar' else 'overlay',
         xaxis_tickangle=-45,
         showlegend=True,
-        height=600,
+        height=800,
         margin=dict(b=200),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
