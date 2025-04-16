@@ -8,7 +8,7 @@ from ta.momentum import RSIIndicator
 from ta.trend import MACD
 
 class StockTradingEnv(gym.Env):
-    def __init__(self, ticker, months=12, initial_balance=10000, continuous=False):
+    def __init__(self, ticker, months=12, initial_balance=5000, continuous=False):
         super(StockTradingEnv, self).__init__()
         self.ticker = ticker
         self.months = months

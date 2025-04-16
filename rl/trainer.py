@@ -22,16 +22,6 @@ def calculate_metrics(net_worths):
 def train_model(ticker, months=12, total_timesteps=100000, save_path="models/ppo_model", algo="ppo"):
     """
     Train a model on the stock trading environment.
-    
-    Args:
-        ticker (str): Stock ticker.
-        months (int): Data range in months.
-        total_timesteps (int): Total training timesteps.
-        save_path (str): Path to save the trained model.
-        algo (str): Algorithm to use ("ppo" or "sac").
-    
-    Returns:
-        tuple: Actions, net worths, total reward, Sharpe ratio, max drawdown.
     """
     # Create environment
     env = StockTradingEnv(ticker, months=months, continuous=(algo == "sac"))
@@ -55,17 +45,24 @@ def train_model(ticker, months=12, total_timesteps=100000, save_path="models/ppo
     total_reward = 0
     actions = []
     net_worths = []
-    
+    print(f"Starting evaluation with obs shape: {obs.shape}")
     while True:
-        action, _ = model.predict(obs)
+        action, _ = model.predict(obs, deterministic=True)  # Ensure deterministic prediction
+        if isinstance(action, np.ndarray) and action.ndim == 0:
+            action = action.item()  # Convert 0D array to scalar
+        elif isinstance(action, np.ndarray) and action.ndim == 1:
+            action = action[0]  # Take first element if 1D
         obs, reward, done, truncated, _ = env.step(action)
         total_reward += reward
         actions.append(action)
         net_worths.append(env.net_worth)
+        
+        print(f"Eval step: Action={action}, Net Worth={env.net_worth}")  # Debug
         if done or truncated:
             break
     
     sharpe_ratio, max_drawdown = calculate_metrics(net_worths)
+    print(f"Evaluation complete. Actions: {len(actions)}, Net Worths: {len(net_worths)}, Max Net Worth: {max(net_worths)}")
     return actions, net_worths, total_reward, sharpe_ratio, max_drawdown
 
 def evaluate_model(ticker, months=12, model_path="models/ppo_model", algo="ppo"):
@@ -103,6 +100,10 @@ def evaluate_model(ticker, months=12, model_path="models/ppo_model", algo="ppo")
         net_worths.append(env.net_worth)
         if done or truncated:
             break
+    print(f"Starting evaluation with obs shape: {obs.shape}")
+    
+
+    print(f"Total Reward: {total_reward}, Actions Taken: {len(actions)}, Net Worths Recorded: {len(net_worths)}")
     
     sharpe_ratio, max_drawdown = calculate_metrics(net_worths)
     return actions, net_worths, total_reward, sharpe_ratio, max_drawdown

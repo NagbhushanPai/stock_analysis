@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 from data.fetcher import fetch_historical_data
 from rl.trainer import train_model
 from rl.backtest import backtest_strategy, rsi_strategy
-from components.rl_visualizer import create_rl_chart
+from rl.rl_visualizer import create_rl_chart
 import os
+import numpy as np
 
 # Initialize Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
@@ -49,7 +50,7 @@ app.layout = dbc.Container([
                     {"label": "RSI", "value": "RSI"},
                     {"label": "MACD", "value": "MACD"}
                 ],
-                value=["RSI"],
+                value=["RSI", "MACD"],
                 className="mb-4"
             ),
             html.Label("Train RL Model:", className="font-semibold mb-2"),
@@ -115,7 +116,8 @@ def update_stock_chart(ticker, months, indicators):
             x=data.index,
             y=data["Close"],
             mode="lines",
-            name="Close Price"
+            name="Close Price",
+            line=dict(color="blue")
         ))
         
         # Add indicators
@@ -125,6 +127,7 @@ def update_stock_chart(ticker, months, indicators):
                 y=data["RSI"],
                 mode="lines",
                 name="RSI",
+                line=dict(color="green"),
                 yaxis="y2"
             ))
         if "MACD" in indicators:
@@ -133,6 +136,7 @@ def update_stock_chart(ticker, months, indicators):
                 y=data["MACD"],
                 mode="lines",
                 name="MACD",
+                line=dict(color="red"),
                 yaxis="y3"
             ))
             fig.add_trace(go.Scatter(
@@ -140,6 +144,7 @@ def update_stock_chart(ticker, months, indicators):
                 y=data["MACD_Signal"],
                 mode="lines",
                 name="MACD Signal",
+                line=dict(color="purple"),
                 yaxis="y3"
             ))
         
@@ -147,15 +152,17 @@ def update_stock_chart(ticker, months, indicators):
         fig.update_layout(
             title=f"{ticker} Stock Price and Indicators",
             xaxis=dict(title="Date"),
-            yaxis=dict(title="Price"),
+            yaxis=dict(title="Price (USD)"),
             yaxis2=dict(title="RSI", overlaying="y", side="right", range=[0, 100]),
             yaxis3=dict(title="MACD", overlaying="y", side="left", position=0.05),
-            template="plotly_dark"
+            template="plotly_dark",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         
         return fig
     
     except Exception as e:
+        print(f"Stock chart error: {str(e)}")
         return go.Figure().update_layout(
             title=f"Error loading chart: {str(e)}",
             template="plotly_dark"
@@ -179,16 +186,29 @@ def train_and_visualize_rl(n_train, n_backtest, ticker, months, indicator_option
     if n_train:
         try:
             model_path = f"models/{algo}_{ticker}.zip"
+            print(f"Starting training {algo.upper()} for {ticker} over {months} months, saving to {model_path}")
             actions, net_worths, total_reward, sharpe_ratio, max_drawdown = train_model(
-                ticker, months=months, save_path=model_path, algo=algo
+                ticker, months=months, save_path=model_path, algo=algo, total_timesteps=100000
             )
+            # Convert actions to scalar values if they are 0D arrays
+            actions = [int(a.item()) if hasattr(a, 'item') else int(a) for a in actions]
+            print(f"Training completed. Actions length: {len(actions)}, Net Worths length: {len(net_worths)}, "
+                  f"Max Net Worth: {max(net_worths) if net_worths else 'N/A'}, Sample Action: {actions[:5] if actions else 'N/A'}, "
+                  f"Total Reward: {total_reward}, Sharpe Ratio: {sharpe_ratio}, Max Drawdown: {max_drawdown}")
+            if not net_worths or not actions or len(net_worths) != len(actions):
+                raise ValueError(f"Invalid data: net_worths={len(net_worths)}, actions={len(actions)}")
             end_date = datetime.now()
             start_date = end_date - timedelta(days=months * 30)
             data = fetch_historical_data(ticker, start_date, end_date, interval="1d", context="rl")
+            if data.empty or len(data) < len(net_worths):
+                raise ValueError(f"Data length {len(data)} insufficient for net_worths {len(net_worths)}")
+            print(f"Creating RL chart with data length: {len(data)}, actions length: {len(actions)}")
             fig = create_rl_chart(actions, net_worths, data, ticker, indicator_options)
             metrics = f"{algo.upper()} - Sharpe Ratio: {sharpe_ratio:.2f}, Max Drawdown: {max_drawdown:.2%}, Total Reward: {total_reward:.2f}"
+            print(f"Returning RL chart with metrics: {metrics}")
             return fig, metrics
         except Exception as e:
+            print(f"Training error: {str(e)}")
             return (
                 go.Figure().update_layout(
                     title=f"Error training {algo.upper()} model: {str(e)}",
@@ -202,10 +222,13 @@ def train_and_visualize_rl(n_train, n_backtest, ticker, months, indicator_option
             result = backtest_strategy(ticker, months, rsi_strategy)
             if "error" in result:
                 raise ValueError(result["error"])
+            print(f"Backtest result: {result}")
             end_date = datetime.now()
             start_date = end_date - timedelta(days=months * 30)
             data = fetch_historical_data(ticker, start_date, end_date, interval="1d", context="backtest")
             actions = [rsi_strategy(data.iloc[:i+1]) for i in range(len(data))]
+            if not result["net_worths"] or not actions or len(result["net_worths"]) != len(actions):
+                raise ValueError(f"Invalid backtest data: net_worths={len(result['net_worths'])}, actions={len(actions)}")
             fig = create_rl_chart(actions, result["net_worths"], data, ticker, indicator_options)
             metrics = (
                 f"RSI Strategy - Sharpe Ratio: {result['sharpe_ratio']:.2f}, "
@@ -213,6 +236,7 @@ def train_and_visualize_rl(n_train, n_backtest, ticker, months, indicator_option
             )
             return fig, metrics
         except Exception as e:
+            print(f"Backtest error: {str(e)}")
             return (
                 go.Figure().update_layout(
                     title=f"Error backtesting RSI strategy: {str(e)}",
