@@ -19,15 +19,15 @@ def create_stock_chart(selected_stocks, months, chart_type, ma_options):
     # Calculate date range
     end_date = datetime.now()
     start_date = end_date - timedelta(days=months * 30)
-    interval = "1m" if months <= 1 else "1d"  # Use 1-minute data for 1 month or less
+    interval = "1m" if months <= 1 else "1d"
     
     # Initialize figure
     fig = go.Figure()
     
-    # Fetch and plot data for each selected stock
+    # Fetch data once per stock
     for i, ticker in enumerate(selected_stocks):
         if ticker in TICKERS:
-            data = fetch_historical_data(ticker, start_date, end_date, interval=interval)
+            data = fetch_historical_data(ticker, start_date, end_date, interval=interval, context="chart")
             if not data.empty:
                 # Create chart trace
                 trace = go.Bar if chart_type == 'Bar' else go.Scatter

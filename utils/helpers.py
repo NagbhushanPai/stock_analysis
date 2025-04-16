@@ -21,7 +21,7 @@ def generate_csv_download(selected_stocks, months):
     all_data = []
     for ticker in selected_stocks:
         if ticker in TICKERS:
-            data = fetch_historical_data(ticker, start_date, end_date, interval=interval)
+            data = fetch_historical_data(ticker, start_date, end_date, interval=interval, context="csv")
             if not data.empty:
                 data = data.reset_index()
                 data['Ticker'] = ticker
