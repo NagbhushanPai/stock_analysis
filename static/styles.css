@@ -1,0 +1,21 @@
+body.dark {
+    background-color: #1f2937;
+    color: #f3f4f6;
+}
+
+.dash-graph {
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+input[type="checkbox"], input[type="radio"] {
+    accent-color: #2563eb;
+}
+
+.slider .dash-slider {
+    background-color: #e5e7eb;
+}
+
+.dark .slider .dash-slider {
+    background-color: #4b5563;
+}
